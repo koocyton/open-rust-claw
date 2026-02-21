@@ -1,0 +1,26 @@
+[telegram]
+# 从 @BotFather 获取的 Bot Token
+bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+# 允许的聊天 ID 列表（频道/群组/用户 ID），留空则接收所有消息
+# 获取方式：给 bot 发消息后查看日志中的 chat_id
+allowed_chat_ids = [-1001234567890]
+
+[llm]
+# OpenAI 兼容 API 的 base URL
+base_url = "https://openrouter.ai/api/v1"
+# API Key
+api_key = "sk-or-xxx"
+# 模型名称
+model = "openai/gpt-4o"
+# 最大 token 数，默认 2048
+# max_tokens = 2048
+# 自定义系统提示词（可选，有内置默认值）
+# system_prompt = "你是一个自动化任务执行代理..."
+
+[executor]
+# 命令执行的工作目录（默认当前目录）
+# working_dir = "/home/user/workspace"
+# 单条命令最大执行时间（秒），默认 120
+timeout_secs = 120
+# 是否在 Telegram 中回显执行结果，默认 true
+echo_result = true
