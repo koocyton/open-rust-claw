@@ -141,6 +141,17 @@ impl LlmClient {
         self.call_api(&system_prompt, &user_message).await
     }
 
+    /// 根据讲稿内容生成乔布斯风竖屏 HTML 演示稿（不依赖 Python 模块）。只返回完整 HTML 字符串。
+    pub async fn generate_ppt_html(&self, script: &str) -> Result<String> {
+        const PPT_SYSTEM: &str = r#"你是乔布斯风极简科技感演示稿生成器。根据用户给的讲稿，直接输出一份完整的、可单独在浏览器打开的 HTML 文件。
+要求：单文件、竖屏 9:16、背景 #0a0a0a 或 #000、主文字 #fff、极简、留白多、一屏一事。使用 TailwindCSS（CDN）和 Vue3（CDN），支持键盘左右键翻页、底部进度条、平滑切换。
+只输出完整 HTML 代码，不要任何解释、不要 markdown 代码块包裹；若必须用代码块则仅用 ```html 与 ``` 包裹，我会自动提取。"#;
+        let user_msg = format!("请根据以下讲稿生成一份乔布斯风竖屏 HTML 演示稿：\n\n{}", script);
+        let raw = self.call_api(PPT_SYSTEM, &user_msg).await?;
+        let html = extract_html_from_response(&raw);
+        Ok(html)
+    }
+
     async fn call_api(&self, system_prompt: &str, user_message: &str) -> Result<String> {
         let url = format!(
             "{}/chat/completions",
@@ -226,6 +237,30 @@ fn truncate_str(s: &str, max: usize) -> String {
         end -= 1;
     }
     format!("{}...", &s[..end])
+}
+
+fn extract_html_from_response(text: &str) -> String {
+    let text = text.trim();
+    if let Some(start) = text.find("```html") {
+        let content = &text[start + 7..];
+        let end = content.find("```").unwrap_or(content.len());
+        return content[..end].trim().to_string();
+    }
+    if let Some(start) = text.find("```") {
+        let after = &text[start + 3..];
+        let content_start = after.find('\n').map(|i| i + 1).unwrap_or(0);
+        let content = &after[content_start..];
+        if let Some(end) = content.find("```") {
+            let s = content[..end].trim();
+            if s.starts_with('<') {
+                return s.to_string();
+            }
+        }
+    }
+    if text.starts_with('<') {
+        return text.to_string();
+    }
+    text.to_string()
 }
 
 fn extract_json_object(text: &str) -> String {

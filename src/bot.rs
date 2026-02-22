@@ -123,6 +123,25 @@ async fn send_images(bot: &Bot, chat_id: ChatId, paths: &[String], tid: u64) {
     }
 }
 
+async fn send_document(bot: &Bot, chat_id: ChatId, path: &str, tid: u64) {
+    let file_path = std::path::Path::new(path);
+    if !file_path.exists() {
+        tlog!(&format!("文档 #{tid}"), "文件不存在: {}", path);
+        return;
+    }
+    tlog!(&format!("文档 #{tid}"), "发送: {}", path);
+    match bot.send_document(chat_id, InputFile::file(file_path)).await {
+        Ok(_) => tlog!(&format!("文档 #{tid}"), "发送成功: {}", path),
+        Err(e) => {
+            tlog!(&format!("文档 #{tid}"), "发送失败: {} - {}", path, e);
+            error!(err = %e, path = %path, "文档发送失败");
+            bot.send_message(chat_id, format!("⚠️ 文档发送失败 {path}: {e}"))
+                .await
+                .ok();
+        }
+    }
+}
+
 async fn send_videos(bot: &Bot, chat_id: ChatId, paths: &[String], tid: u64) {
     for path in paths {
         let file_path = std::path::Path::new(path);
@@ -282,6 +301,44 @@ fn extract_command_from_suggestion(s: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// 解析 ppt-generator "标题" "内容" 形式的命令，返回 (标题, 讲稿内容)。
+fn parse_ppt_generator_args(cmd: &str) -> Option<(String, String)> {
+    let cmd = cmd.trim();
+    if !cmd.starts_with("ppt-generator ") {
+        return None;
+    }
+    let rest = cmd["ppt-generator ".len()..].trim_start();
+    let mut in_quote = false;
+    let mut escape = false;
+    let mut segments: Vec<(usize, usize)> = vec![];
+    let mut segment_start = 0usize;
+    for (i, c) in rest.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if c == '\\' && in_quote {
+            escape = true;
+            continue;
+        }
+        if c == '"' {
+            if !in_quote {
+                in_quote = true;
+                segment_start = i + 1;
+            } else {
+                in_quote = false;
+                segments.push((segment_start, i));
+            }
+        }
+    }
+    if segments.len() < 2 {
+        return None;
+    }
+    let title = rest[segments[0].0..segments[0].1].to_string();
+    let content = rest[segments[1].0..segments[1].1].to_string();
+    Some((title, content))
 }
 
 fn extract_install_query(text: &str) -> Option<String> {
@@ -450,16 +507,64 @@ async fn process_message(
             let plan: String = commands
                 .iter()
                 .enumerate()
-                .map(|(i, c)| format!("{}. {} → `{}`", i + 1, c.description, c.command))
+                .map(|(i, c)| format!("{}. {} → `{}`", i + 1, c.description, truncate(&c.command, 100)))
                 .collect::<Vec<_>>()
                 .join("\n");
             tlog!(&tag, "执行计划:\n{}", plan);
             let plan_text = format!("📝 执行计划:\n{plan}\n\n⏳ 执行中...");
             edit_or_send(&bot, chat_id, status_msg_id, &plan_text).await;
 
-            tlog!(&tag, "开始执行命令... (失败时最多修正重试 {} 次)", max_fix_retries);
             let exec_start = Instant::now();
-            let results = if commands.len() >= 2
+            let (results, extra_doc_paths) = if !commands.is_empty()
+                && commands[0].command.trim_start().starts_with("ppt-generator ")
+                && parse_ppt_generator_args(&commands[0].command).is_some()
+            {
+                let (title, content) = parse_ppt_generator_args(&commands[0].command).unwrap();
+                tlog!(&tag, "使用 LLM 直接生成 PPT HTML（不依赖 Python 模块）");
+                match llm.generate_ppt_html(&content).await {
+                    Ok(html) => {
+                        let path = "/tmp/slides.html";
+                        if let Err(e) = std::fs::write(path, &html) {
+                            tlog!(&tag, "写入 HTML 失败: {}", e);
+                            (
+                                vec![CommandResult {
+                                    command: commands[0].command.clone(),
+                                    success: false,
+                                    exit_code: None,
+                                    stdout: String::new(),
+                                    stderr: format!("写入文件失败: {e}"),
+                                }],
+                                vec![],
+                            )
+                        } else {
+                            tlog!(&tag, "已保存到 {}", path);
+                            (
+                                vec![CommandResult {
+                                    command: format!("LLM 生成乔布斯风 HTML 演示稿（{}）", title),
+                                    success: true,
+                                    exit_code: Some(0),
+                                    stdout: format!("已生成并保存到 {path}"),
+                                    stderr: String::new(),
+                                }],
+                                vec![path.to_string()],
+                            )
+                        }
+                    }
+                    Err(e) => {
+                        tlog!(&tag, "LLM 生成 PPT 失败: {}", e);
+                        (
+                            vec![CommandResult {
+                                command: commands[0].command.clone(),
+                                success: false,
+                                exit_code: None,
+                                stdout: String::new(),
+                                stderr: e.to_string(),
+                            }],
+                            vec![],
+                        )
+                    }
+                }
+            } else if commands.len() >= 2
                 && is_list_avfoundation_devices(&commands[0].command)
                 && is_avfoundation_record(&commands[1].command)
             {
@@ -479,15 +584,22 @@ async fn process_message(
                             run_commands_with_fix_retry(&executor, &llm, skills.as_slice(), &rest, max_fix_retries, &tag).await;
                         let mut all = vec![r0];
                         all.extend(rest_results);
-                        all
+                        (all, vec![])
                     }
                     Err(e) => {
                         tlog!(&tag, "列出设备失败，按原计划执行: {}", e);
-                        run_commands_with_fix_retry(&executor, &llm, skills.as_slice(), &commands, max_fix_retries, &tag).await
+                        (
+                            run_commands_with_fix_retry(&executor, &llm, skills.as_slice(), &commands, max_fix_retries, &tag).await,
+                            vec![],
+                        )
                     }
                 }
             } else {
-                run_commands_with_fix_retry(&executor, &llm, skills.as_slice(), &commands, max_fix_retries, &tag).await
+                tlog!(&tag, "开始执行命令... (失败时最多修正重试 {} 次)", max_fix_retries);
+                (
+                    run_commands_with_fix_retry(&executor, &llm, skills.as_slice(), &commands, max_fix_retries, &tag).await,
+                    vec![],
+                )
             };
             tlog!(&tag, "命令执行完毕 ({} 条, 耗时 {:.2}s)", results.len(), exec_start.elapsed().as_secs_f64());
 
@@ -520,6 +632,9 @@ async fn process_message(
             if !videos.is_empty() {
                 tlog!(&tag, "发现 {} 个视频", videos.len());
                 send_videos(&bot, chat_id, &videos, tid).await;
+            }
+            for path in &extra_doc_paths {
+                send_document(&bot, chat_id, path, tid).await;
             }
         }
     }

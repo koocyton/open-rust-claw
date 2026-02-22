@@ -1,6 +1,8 @@
 ---
 name: ppt-generator
 description: 将用户讲稿一键生成乔布斯风极简科技感竖屏HTML演示稿。当用户需要生成PPT、演示文稿、Slides、幻灯片，或要求科技风/极简风/乔布斯风格的演示时触发此技能。输出为单个可直接运行的HTML文件。
+prompt_hint: "当用户要求生成 PPT、演示稿、幻灯片 时，使用命令格式 ppt-generator \"标题\" \"讲稿正文\"。程序会由 LLM 直接生成乔布斯风竖屏 HTML，无需安装 Python 或 ppt_generator 模块。例如 ppt-generator \"昆仑万维\" \"这是一家中国领先的互联网公司...\"。只返回这一条命令即可。"
+install: "无需安装。PPT 由 LLM 根据讲稿直接生成 HTML 并保存到 /tmp/slides.html，由 bot 以文档形式发送。只需在 Telegram 中发送「生成关于 xxx 的 PPT」或「把以下内容做成演示稿」并附上讲稿即可。"
 ---
 
 # PPT Generator
