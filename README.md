@@ -65,6 +65,41 @@ Telegram 频道/群组消息
 cargo build --release
 ```
 
+### OpenWrt ARM64 交叉编译（MTK FILOGIC 820 / MT7981B 等）
+
+目标为 **aarch64-unknown-linux-musl**，与 OpenWrt 常见 musl 环境兼容。
+
+**方式一：使用 [cross](https://github.com/cross-rs/cross)（推荐，无需本机装 ARM 工具链）**
+
+需先安装并启动 Docker。然后：
+
+```bash
+cargo install cross
+rustup target add aarch64-unknown-linux-musl
+./scripts/build-openwrt.sh
+# 或直接：
+cross build --target aarch64-unknown-linux-musl --release
+```
+
+产物在 `target/aarch64-unknown-linux-musl/release/rust-bot`，脚本会复制到 `./openwrt-out/rust-bot`。若不用 cross 而直接用 `cargo build --target ...`，需本机具备 aarch64-linux-musl 的 C 工具链（如 musl-cross 或 OpenWrt SDK），否则 `ring` 等 C 依赖会编译失败。
+
+**方式二：使用 OpenWrt SDK 工具链**
+
+在 `.cargo/config.toml` 中为 `[target.aarch64-unknown-linux-musl]` 设置 `linker` 为 SDK 中的 `aarch64-openwrt-linux-musl-gcc` 的路径，然后：
+
+```bash
+rustup target add aarch64-unknown-linux-musl
+cargo build --target aarch64-unknown-linux-musl --release
+```
+
+**上传与运行**
+
+将 `rust-bot` 和 `config.toml` 拷到设备（如 `/opt/rust-bot/`），在 OpenWrt 上需有 libc（musl 已静态链接进 musl 目标的可执行文件，一般无需额外库）。直接运行：
+
+```bash
+./rust-bot /path/to/config.toml
+```
+
 ### 配置
 
 ```bash

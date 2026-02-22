@@ -1,0 +1,8 @@
+# 交叉编译目标：OpenWrt ARM64 (MTK FILOGIC 820 / MT7981B 等)
+# 使用 musl 与 OpenWrt 兼容
+[target.aarch64-unknown-linux-musl]
+# 若使用 cross：无需设置 linker，直接 cross build --target aarch64-unknown-linux-musl --release
+# 若使用 OpenWrt SDK 工具链，取消下行注释并改为你的 SDK 中 cc 路径，例如：
+# linker = "aarch64-openwrt-linux-musl-gcc"
+# 或绝对路径，例如：
+# linker = "/path/to/openwrt/sdk/staging_dir/toolchain-aarch64_*_gcc-*_musl/bin/aarch64-openwrt-linux-musl-gcc"
